@@ -1,0 +1,33 @@
+[package]
+name = "company-ai-desktop"
+version = "1.0.0"
+description = "Company AI Desktop"
+authors = []
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "company_ai_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "company-ai-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+panic = "abort"   # Strip expensive panic clean-up code
+codegen-units = 1 # Allows LLVM to perform better optimization
+lto = true        # Enables link-time-optimizations
+opt-level = "s"   # Prioritize small binary size
+strip = true      # Strip debug symbols

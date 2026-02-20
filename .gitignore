@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+backend/.venv/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node/Vite
+desktop/dist/
+desktop/dist-ssr/
+*.local
+
+# Tauri
+desktop/src-tauri/target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# JWT keys (if generated locally)
+*.pem
+
+# Logs
+*.log
+
+# Claude Code
+.claude/
