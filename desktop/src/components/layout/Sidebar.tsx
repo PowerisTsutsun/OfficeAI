@@ -23,6 +23,7 @@ interface ChatItemProps {
 }
 
 function ChatItem({ session, isActive, onSelect, onDelete, onRename, onPin }: ChatItemProps) {
+  const { providers } = useChatStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(session.title ?? '');
@@ -42,7 +43,9 @@ function ChatItem({ session, isActive, onSelect, onDelete, onRename, onPin }: Ch
     setIsRenaming(false);
   };
 
-  const modelShort = session.model.split('-').slice(0, 2).join('-');
+  const provider = providers.find((p) => p.name === session.provider);
+  const modelDisplay = provider?.models.find((m) => m.modelId === session.model)?.displayName;
+  const modelShort = modelDisplay ?? session.model.split('-').slice(0, 2).join('-');
 
   return (
     <>
@@ -233,7 +236,7 @@ function groupSessionsByDate(sessions: ChatSession[]) {
 // ── Main Sidebar ──────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
-  const { sessions, activeSessionId, selectSession, createSession, updateSession, deleteSession } = useChatStore();
+  const { sessions, activeSessionId, selectSession, updateSession, deleteSession } = useChatStore();
   const { sidebarOpen, openCommandPalette } = useUIStore();
   const { user } = useAuthStore();
 
@@ -247,9 +250,9 @@ export default function Sidebar() {
 
   const groups = useMemo(() => groupSessionsByDate(filteredSessions), [filteredSessions]);
 
-  const handleNewChat = useCallback(async () => {
-    await createSession({});
-  }, [createSession]);
+  const handleNewChat = useCallback(() => {
+    selectSession(null);
+  }, [selectSession]);
 
   const handlePin = useCallback((id: string) => {
     const s = sessions.find((s) => s.id === id);

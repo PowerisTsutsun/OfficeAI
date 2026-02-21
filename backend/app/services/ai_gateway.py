@@ -236,6 +236,11 @@ class AnthropicAdapter(BaseAdapter):
 class GeminiAdapter(BaseAdapter):
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
+    def __init__(self, config: AdapterConfig):
+        self.config = config
+        # Gemini uses API key as query param, NOT Bearer token header
+        self._client = httpx.AsyncClient(timeout=config.timeout)
+
     async def stream_chat(
         self,
         model: str,

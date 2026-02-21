@@ -34,11 +34,30 @@ function TokenIndicator({
   );
 }
 
-export default function MessageInput() {
+export default function MessageInput({ simple = false }: { simple?: boolean }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+
+  const handleFileAttach = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const header = `--- ${file.name} ---\n`;
+      setValue((prev) => prev + (prev ? '\n\n' : '') + header + text + '\n--- end ---\n');
+      textareaRef.current?.focus();
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, []);
 
   const { sendMessage, cancelStream, isSending, activeSessionId } = useChatStore();
   const { quota } = useAuthStore();
@@ -101,9 +120,9 @@ export default function MessageInput() {
         transition={{ duration: 0.15 }}
         className="relative bg-[--bg-elevated] rounded-2xl overflow-hidden"
       >
-        {/* Ephemeral indicator */}
+        {/* Ephemeral indicator (advanced only) */}
         <AnimatePresence>
-          {useChatStore.getState().activeSession?.isEphemeral && (
+          {!simple && useChatStore.getState().activeSession?.isEphemeral && (
             <motion.div
               initial={{ height: 0 }}
               animate={{ height: 'auto' }}
@@ -130,7 +149,9 @@ export default function MessageInput() {
           onBlur={() => setIsFocused(false)}
           placeholder={
             activeSessionId
-              ? 'Message… (Enter to send, Shift+Enter for new line)'
+              ? simple
+                ? 'Type a message…'
+                : 'Message… (Enter to send, Shift+Enter for new line)'
               : 'Select or create a chat to start'
           }
           disabled={!activeSessionId || (isSending && !value)}
@@ -149,35 +170,46 @@ export default function MessageInput() {
 
         {/* Bottom toolbar */}
         <div className="flex items-center gap-1.5 px-3 pb-2.5">
-          {/* Left: attachment + templates */}
+          {/* Attach file (always visible) */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".txt,.md,.csv,.json,.xml,.html,.css,.js,.ts,.tsx,.jsx,.py,.rs,.go,.java,.c,.cpp,.h,.yaml,.yml,.toml,.env,.log,.sql,.sh"
+            onChange={handleFileChange}
+          />
           <button
-            disabled
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-[--text-disabled] cursor-not-allowed"
-            aria-label="Attach file (coming soon)"
-            title="Attach file (coming soon)"
+            onClick={handleFileAttach}
+            disabled={isSending}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Attach file"
+            title="Attach file"
           >
             <Paperclip className="w-3.5 h-3.5" />
           </button>
 
-          <button
-            onClick={() => setShowTemplates(!showTemplates)}
-            className={`
-              w-7 h-7 flex items-center justify-center rounded-lg transition-colors
-              ${showTemplates
-                ? 'bg-[--accent-subtle] text-[--accent]'
-                : 'text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover]'
-              }
-            `}
-            aria-label="Insert template"
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-          </button>
+          {/* Templates (advanced only) */}
+          {!simple && (
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className={`
+                w-7 h-7 flex items-center justify-center rounded-lg transition-colors
+                ${showTemplates
+                  ? 'bg-[--accent-subtle] text-[--accent]'
+                  : 'text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover]'
+                }
+              `}
+              aria-label="Insert template"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Token counter */}
-          {value.length > 0 && (
+          {/* Token counter (advanced only) */}
+          {!simple && value.length > 0 && (
             <TokenIndicator count={tokenCount} limit={tokenLimit} />
           )}
 
@@ -218,8 +250,8 @@ export default function MessageInput() {
           </motion.button>
         </div>
 
-        {/* Keyboard hint */}
-        {!isSending && (
+        {/* Keyboard hint (advanced only) */}
+        {!simple && !isSending && (
           <div className="absolute right-4 bottom-14 text-[10px] text-[--text-disabled] pointer-events-none">
             <kbd className="px-1 py-0.5 rounded bg-[--bg-overlay] font-mono">Enter</kbd> send
             {' · '}
@@ -228,15 +260,17 @@ export default function MessageInput() {
         )}
       </motion.div>
 
-      {/* Template picker popover */}
-      <AnimatePresence>
-        {showTemplates && (
-          <TemplatePicker
-            onSelect={handleTemplateInsert}
-            onClose={() => setShowTemplates(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Template picker popover (advanced only) */}
+      {!simple && (
+        <AnimatePresence>
+          {showTemplates && (
+            <TemplatePicker
+              onSelect={handleTemplateInsert}
+              onClose={() => setShowTemplates(false)}
+            />
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 }

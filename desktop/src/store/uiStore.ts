@@ -3,6 +3,8 @@ import { immer } from 'zustand/middleware/immer';
 import { persist } from 'zustand/middleware';
 import type { Theme, AccentColor } from '@/types';
 
+export type ChatViewMode = 'simple' | 'advanced';
+
 interface UIState {
   theme: Theme;
   accentColor: AccentColor;
@@ -10,6 +12,7 @@ interface UIState {
   reducedMotion: boolean;
   compactMode: boolean;
   sidebarWidth: number;
+  chatViewMode: ChatViewMode;
 
   // Panel visibility
   sidebarOpen: boolean;
@@ -27,6 +30,8 @@ interface UIActions {
   toggleSidebar: () => void;
   setSidebarOpen: (v: boolean) => void;
   toggleSettingsPanel: () => void;
+  setChatViewMode: (mode: ChatViewMode) => void;
+  toggleChatViewMode: () => void;
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
   setCommandQuery: (q: string) => void;
@@ -42,6 +47,7 @@ export const useUIStore = create<UIState & UIActions>()(
       reducedMotion: false,
       compactMode: false,
       sidebarWidth: 240,
+      chatViewMode: 'simple',
 
       sidebarOpen: true,
       settingsPanelOpen: false,
@@ -69,6 +75,10 @@ export const useUIStore = create<UIState & UIActions>()(
       toggleSettingsPanel: () =>
         set((s) => { s.settingsPanelOpen = !s.settingsPanelOpen; }),
 
+      setChatViewMode: (mode) => set((s) => { s.chatViewMode = mode; }),
+      toggleChatViewMode: () =>
+        set((s) => { s.chatViewMode = s.chatViewMode === 'simple' ? 'advanced' : 'simple'; }),
+
       openCommandPalette: () =>
         set((s) => { s.commandPaletteOpen = true; s.commandQuery = ''; }),
 
@@ -95,6 +105,7 @@ export const useUIStore = create<UIState & UIActions>()(
         reducedMotion: s.reducedMotion,
         compactMode: s.compactMode,
         sidebarWidth: s.sidebarWidth,
+        chatViewMode: s.chatViewMode,
       }),
     },
   ),

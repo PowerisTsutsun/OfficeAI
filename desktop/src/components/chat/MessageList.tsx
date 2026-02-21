@@ -3,11 +3,22 @@ import { VariableSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'framer-motion';
 import MessageBubble from './MessageBubble';
+import { useUIStore } from '@/store/uiStore';
 import type { ChatMessageData } from '@/types';
 
-// ── Empty state ────────────────────────────────────────────────────────────────
+// ── Simple empty state ──────────────────────────────────────────────────────────
 
-function EmptyState() {
+function SimpleEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full pb-16 select-none">
+      <p className="text-sm text-[--text-tertiary]">Type a message below to get started</p>
+    </div>
+  );
+}
+
+// ── Advanced empty state ────────────────────────────────────────────────────────
+
+function AdvancedEmptyState() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-5 pb-16 select-none">
       <div className="relative">
@@ -32,10 +43,10 @@ function EmptyState() {
 
       <div className="grid grid-cols-2 gap-2 max-w-sm w-full px-4">
         {[
-          { label: '✍️ Write & edit', desc: 'Drafts, emails, docs' },
-          { label: '💻 Code', desc: 'Debug, review, generate' },
-          { label: '🔍 Research', desc: 'Summarize & analyze' },
-          { label: '💡 Brainstorm', desc: 'Ideas & strategies' },
+          { label: 'Write & edit', desc: 'Drafts, emails, docs' },
+          { label: 'Code', desc: 'Debug, review, generate' },
+          { label: 'Research', desc: 'Summarize & analyze' },
+          { label: 'Brainstorm', desc: 'Ideas & strategies' },
         ].map((tip) => (
           <div
             key={tip.label}
@@ -158,8 +169,10 @@ export default function MessageList({
   isLoading,
   onRegenerate,
 }: MessageListProps) {
+  const { chatViewMode } = useUIStore();
+
   if (!isLoading && messages.length === 0) {
-    return <EmptyState />;
+    return chatViewMode === 'simple' ? <SimpleEmptyState /> : <AdvancedEmptyState />;
   }
 
   return (

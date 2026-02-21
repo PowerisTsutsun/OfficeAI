@@ -172,6 +172,18 @@ INSERT INTO ai_providers (name, display_name, is_enabled, secret_key_name) VALUE
   ('anthropic', 'Anthropic',      TRUE, 'ANTHROPIC_API_KEY'),
   ('gemini',    'Google Gemini',  TRUE, 'GEMINI_API_KEY');
 
+-- Seed default models
+INSERT INTO ai_models (provider_id, model_id, display_name, context_window, max_output_tokens, supports_vision, supports_tools, is_enabled, sort_order) VALUES
+  -- OpenAI
+  ((SELECT id FROM ai_providers WHERE name = 'openai'), 'gpt-5-mini-2025-08-07',  'GPT Fast',       128000, 16384, TRUE,  TRUE,  TRUE, 0),
+  ((SELECT id FROM ai_providers WHERE name = 'openai'), 'gpt-5.2-2025-12-11',     'GPT Advanced',   128000, 16384, TRUE,  TRUE,  TRUE, 1),
+  -- Anthropic
+  ((SELECT id FROM ai_providers WHERE name = 'anthropic'), 'claude-haiku-4-5-20251001', 'Claude Fast',    200000, 8192, TRUE, TRUE, TRUE, 0),
+  ((SELECT id FROM ai_providers WHERE name = 'anthropic'), 'claude-sonnet-4-6',         'Claude Advanced', 200000, 8192, TRUE, TRUE, TRUE, 1),
+  -- Gemini
+  ((SELECT id FROM ai_providers WHERE name = 'gemini'), 'gemini-3-flash-preview', 'Gemini Fast',     1048576, 8192, TRUE, TRUE, TRUE, 0),
+  ((SELECT id FROM ai_providers WHERE name = 'gemini'), 'gemini-3-pro-preview',   'Gemini Advanced', 1048576, 8192, TRUE, TRUE, TRUE, 1);
+
 -- ─────────────────────────────────────────────────────────────
 -- CHAT FOLDERS
 -- ─────────────────────────────────────────────────────────────

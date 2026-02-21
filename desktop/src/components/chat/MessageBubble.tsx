@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp,
 } from 'lucide-react';
 import type { ChatMessageData } from '@/types';
+import { useChatStore } from '@/store/chatStore';
 
 // ── Copy button ───────────────────────────────────────────────────────────────
 
@@ -26,10 +27,10 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
       onClick={handleCopy}
       className={`
         flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium
-        transition-all duration-100
+        transition-colors duration-100
         ${copied
           ? 'bg-[--color-success]/20 text-[--color-success]'
-          : 'bg-[--bg-overlay] text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover]'
+          : 'bg-[--bg-overlay] text-[--text-tertiary]'
         }
         ${className}
       `}
@@ -188,28 +189,20 @@ function TokenBadge({ tokensIn, tokensOut }: { tokensIn: number; tokensOut: numb
 // ── Message actions ────────────────────────────────────────────────────────────
 
 interface MessageActionsProps {
-  content: string;
-  role: 'user' | 'assistant';
   onRegenerate?: () => void;
 }
 
-function MessageActions({ content, role, onRegenerate }: MessageActionsProps) {
+function MessageActions({ onRegenerate }: MessageActionsProps) {
+  if (!onRegenerate) return null;
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex items-center gap-1 mt-1"
-    >
-      <CopyButton text={content} />
-      {role === 'assistant' && onRegenerate && (
-        <button
-          onClick={onRegenerate}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[--bg-overlay] text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover] transition-all duration-100"
-        >
-          <RotateCcw className="w-3 h-3" /> Regenerate
-        </button>
-      )}
-    </motion.div>
+    <div className="flex items-center gap-1 mt-1">
+      <button
+        onClick={onRegenerate}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[--bg-overlay] text-[--text-tertiary] hover:text-[--text-primary] hover:bg-[--bg-hover] transition-colors duration-100"
+      >
+        <RotateCcw className="w-3 h-3" /> Regenerate
+      </button>
+    </div>
   );
 }
 
@@ -221,12 +214,36 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble = memo(function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
-  const [isHovered, setIsHovered] = useState(false);
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming ?? false;
   const displayContent = isStreaming
     ? (message.streamingContent ?? '')
     : message.content;
+  const [copied, setCopied] = useState(false);
+  const providers = useChatStore((s) => s.providers);
+
+  // Resolve display name from providers store
+  const modelDisplayName = (() => {
+    if (!message.model) return null;
+    for (const p of providers) {
+      const m = p.models.find((m) => m.modelId === message.model);
+      if (m) return m.displayName;
+    }
+    return message.model;
+  })();
+
+  const handleCopyBubble = useCallback(async (e: React.MouseEvent) => {
+    if (isStreaming || message.hasError) return;
+    const selection = window.getSelection()?.toString();
+    if (selection) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('a, button')) return;
+    if (!displayContent) return;
+
+    await navigator.clipboard.writeText(displayContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }, [displayContent, isStreaming, message.hasError]);
 
   return (
     <motion.div
@@ -234,8 +251,6 @@ const MessageBubble = memo(function MessageBubble({ message, onRegenerate }: Mes
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.15, ease: [0, 0, 0.2, 1] }}
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
       className={`flex gap-3 px-4 py-3 group ${isUser ? 'flex-row-reverse' : ''}`}
     >
       {/* Avatar */}
@@ -253,13 +268,18 @@ const MessageBubble = memo(function MessageBubble({ message, onRegenerate }: Mes
       {/* Content */}
       <div className={`flex-1 min-w-0 max-w-[80%] ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
         {/* Message bubble */}
-        <div className={`
+        <div
+          onClick={handleCopyBubble}
+          title="Click to copy"
+          className={`
           relative rounded-2xl px-3.5 py-2.5
+          ${(!isStreaming && !message.hasError) ? 'cursor-copy' : ''}
           ${isUser
             ? 'bg-[--accent] text-white rounded-tr-sm'
             : 'bg-[--bg-elevated] text-[--text-primary] rounded-tl-sm border border-[--border-subtle]'
           }
-        `}>
+        `}
+        >
           {message.hasError ? (
             <div className="flex items-center gap-2 text-[--color-error] text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -296,24 +316,23 @@ const MessageBubble = memo(function MessageBubble({ message, onRegenerate }: Mes
           <span className="text-[10px] text-[--text-disabled]">
             {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
+          {copied && (
+            <span className="text-[10px] text-[--text-tertiary]">
+              Copied
+            </span>
+          )}
           {!isUser && (
             <TokenBadge tokensIn={message.tokensIn} tokensOut={message.tokensOut} />
           )}
           {message.model && (
-            <span className="text-[10px] text-[--text-disabled] font-mono">{message.model.split('-').slice(0, 2).join('-')}</span>
+            <span className="text-[10px] text-[--text-disabled] font-mono">{modelDisplayName}</span>
           )}
         </div>
 
-        {/* Actions — on hover */}
-        <AnimatePresence>
-          {isHovered && !isStreaming && !message.hasError && (
-            <MessageActions
-              content={displayContent}
-              role={isUser ? 'user' : 'assistant'}
-              onRegenerate={!isUser ? onRegenerate : undefined}
-            />
-          )}
-        </AnimatePresence>
+        {/* Actions */}
+        {!isStreaming && !message.hasError && (
+          <MessageActions onRegenerate={!isUser ? onRegenerate : undefined} />
+        )}
       </div>
     </motion.div>
   );

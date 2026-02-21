@@ -68,8 +68,8 @@ export const useChatStore = create<ChatState & ChatActions>()(
     isSending: false,
     streamingSessionId: null,
     providers: [],
-    selectedProvider: 'openai',
-    selectedModel: 'gpt-4o',
+    selectedProvider: 'gemini',
+    selectedModel: 'gemini-3-flash-preview',
     error: null,
 
     loadSessions: async () => {

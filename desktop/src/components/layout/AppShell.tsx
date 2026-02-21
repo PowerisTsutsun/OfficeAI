@@ -12,7 +12,7 @@ import { useAuthStore } from '@/store/authStore';
 // Keyboard shortcuts hook
 function useGlobalShortcuts() {
   const { openCommandPalette, toggleSidebar, toggleSettingsPanel } = useUIStore();
-  const { createSession, cancelStream, isSending } = useChatStore();
+  const { selectSession, cancelStream, isSending } = useChatStore();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -26,7 +26,7 @@ function useGlobalShortcuts() {
           break;
         case 'n':
           e.preventDefault();
-          createSession({});
+          selectSession(null);
           break;
         case '\\':
           e.preventDefault();
@@ -47,7 +47,7 @@ function useGlobalShortcuts() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [openCommandPalette, toggleSidebar, toggleSettingsPanel, createSession, cancelStream, isSending]);
+  }, [openCommandPalette, toggleSidebar, toggleSettingsPanel, selectSession, cancelStream, isSending]);
 }
 
 // Theme + accent initialization

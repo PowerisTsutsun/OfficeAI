@@ -13,7 +13,7 @@ import type { CommandItem } from '@/types';
 
 function useCommands(): CommandItem[] {
   const { setTheme, closeCommandPalette, toggleSettingsPanel } = useUIStore();
-  const { createSession, sessions, selectSession, deleteSession } = useChatStore();
+  const { sessions, selectSession, deleteSession } = useChatStore();
 
   return useMemo(() => {
     const baseCommands: CommandItem[] = [
@@ -24,7 +24,7 @@ function useCommands(): CommandItem[] {
         icon: 'plus',
         shortcut: '⌘N',
         group: 'actions',
-        action: () => { createSession({}); closeCommandPalette(); },
+        action: () => { selectSession(null); closeCommandPalette(); },
       },
       {
         id: 'toggle-settings',

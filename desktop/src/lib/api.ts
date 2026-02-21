@@ -58,6 +58,25 @@ export function loadStoredTokens(): void {
   if (rt) _refreshToken = rt;
 }
 
+function mapChatSession(raw: any): ChatSession {
+  return {
+    id: raw.id,
+    title: raw.title ?? null,
+    provider: raw.provider,
+    model: raw.model,
+    isPinned: raw.is_pinned ?? raw.isPinned ?? false,
+    isEphemeral: raw.is_ephemeral ?? raw.isEphemeral ?? false,
+    tags: raw.tags ?? [],
+    folderId: raw.folder_id ?? raw.folderId ?? null,
+    totalTokensIn: raw.total_tokens_in ?? raw.totalTokensIn ?? 0,
+    totalTokensOut: raw.total_tokens_out ?? raw.totalTokensOut ?? 0,
+    messageCount: raw.message_count ?? raw.messageCount ?? 0,
+    lastMessageAt: raw.last_message_at ?? raw.lastMessageAt ?? null,
+    createdAt: raw.created_at ?? raw.createdAt,
+    updatedAt: raw.updated_at ?? raw.updatedAt,
+  };
+}
+
 // ── Core fetch wrapper ────────────────────────────────────────────────────────
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -275,18 +294,20 @@ export const models = {
 // ── Chat endpoints ─────────────────────────────────────────────────────────────
 
 export const chat = {
-  listSessions: (params?: { limit?: number; offset?: number; search?: string }) =>
-    request<ChatSession[]>('GET', '/chat/sessions', { params }),
+  listSessions: async (params?: { limit?: number; offset?: number; search?: string }) => {
+    const sessions = await request<any[]>('GET', '/chat/sessions', { params });
+    return sessions.map(mapChatSession);
+  },
 
-  createSession: (data: {
+  createSession: async (data: {
     provider: string;
     model: string;
     title?: string;
     isEphemeral?: boolean;
     systemPrompt?: string;
     tags?: string[];
-  }) =>
-    request<ChatSession>('POST', '/chat/sessions', {
+  }) => {
+    const session = await request<any>('POST', '/chat/sessions', {
       body: {
         provider: data.provider,
         model: data.model,
@@ -295,19 +316,28 @@ export const chat = {
         system_prompt: data.systemPrompt,
         tags: data.tags ?? [],
       },
-    }),
+    });
+    return mapChatSession(session);
+  },
 
-  getSession: (id: string) => request<ChatSession>('GET', `/chat/sessions/${id}`),
+  getSession: async (id: string) => {
+    const session = await request<any>('GET', `/chat/sessions/${id}`);
+    return mapChatSession(session);
+  },
 
-  updateSession: (id: string, data: Partial<ChatSession>) =>
-    request<ChatSession>('PATCH', `/chat/sessions/${id}`, {
+  updateSession: async (id: string, data: Partial<ChatSession>) => {
+    const session = await request<any>('PATCH', `/chat/sessions/${id}`, {
       body: {
         title: data.title,
         is_pinned: data.isPinned,
         tags: data.tags,
         folder_id: data.folderId,
+        provider: data.provider,
+        model: data.model,
       },
-    }),
+    });
+    return mapChatSession(session);
+  },
 
   deleteSession: (id: string) =>
     request<void>('DELETE', `/chat/sessions/${id}`),

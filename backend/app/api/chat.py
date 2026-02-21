@@ -44,6 +44,8 @@ class UpdateSessionRequest(BaseModel):
     is_pinned: bool | None = None
     tags: list[str] | None = None
     folder_id: uuid.UUID | None = None
+    provider: str | None = None
+    model: str | None = None
 
 
 class SessionResponse(BaseModel):
@@ -146,6 +148,17 @@ async def _check_quota(
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate (4 chars ≈ 1 token). Server uses provider's actual count."""
     return max(1, len(text) // 4)
+
+
+def _derive_session_title(content: str) -> str | None:
+    """Derive a concise title from the user's message content."""
+    cleaned = " ".join(content.strip().split())
+    if not cleaned:
+        return None
+    max_len = 80
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[: max_len - 3].rstrip() + "..."
 
 
 # ── Session endpoints ─────────────────────────────────────────────────────────
@@ -269,6 +282,12 @@ async def update_session(
         session.tags = body.tags
     if body.folder_id is not None:
         session.folder_id = body.folder_id
+    if body.provider is not None or body.model is not None:
+        new_provider = body.provider or session.provider
+        new_model = body.model or session.model
+        await _verify_model_access(new_provider, new_model, db)
+        session.provider = new_provider
+        session.model = new_model
 
     return _session_to_response(session)
 
@@ -405,6 +424,10 @@ async def send_message(
         is_ephemeral=session.is_ephemeral,
     )
     db.add(user_msg)
+    if not (session.title and session.title.strip()):
+        derived_title = _derive_session_title(body.content)
+        if derived_title:
+            session.title = derived_title
     session.message_count += 1
     session.last_message_at = datetime.now(UTC)
     await db.commit()
