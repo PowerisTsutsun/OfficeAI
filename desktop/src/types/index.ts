@@ -94,6 +94,7 @@ export interface ChatSession {
   model: string;
   isPinned: boolean;
   isEphemeral: boolean;
+  privacyMode: PrivacyMode;
   tags: string[];
   folderId: string | null;
   totalTokensIn: number;
@@ -105,6 +106,7 @@ export interface ChatSession {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system';
+export type PrivacyMode = 'true_private' | 'local' | 'masked_private';
 
 export interface ChatMessageData {
   id: string;

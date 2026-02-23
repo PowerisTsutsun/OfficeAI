@@ -16,6 +16,7 @@ import type {
   UserQuota,
   UserSession,
   StreamEvent,
+  PrivacyMode,
 } from '@/types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
@@ -58,6 +59,10 @@ export function loadStoredTokens(): void {
   if (rt) _refreshToken = rt;
 }
 
+export function hasSessionToken(): boolean {
+  return Boolean(_accessToken || _refreshToken || sessionStorage.getItem('rt'));
+}
+
 function mapChatSession(raw: any): ChatSession {
   return {
     id: raw.id,
@@ -66,6 +71,7 @@ function mapChatSession(raw: any): ChatSession {
     model: raw.model,
     isPinned: raw.is_pinned ?? raw.isPinned ?? false,
     isEphemeral: raw.is_ephemeral ?? raw.isEphemeral ?? false,
+    privacyMode: raw.privacy_mode ?? raw.privacyMode ?? 'masked_private',
     tags: raw.tags ?? [],
     folderId: raw.folder_id ?? raw.folderId ?? null,
     totalTokensIn: raw.total_tokens_in ?? raw.totalTokensIn ?? 0,
@@ -200,6 +206,7 @@ export async function* streamMessage(
   sessionId: string,
   content: string,
   temperature = 0.7,
+  privacyMode?: PrivacyMode,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const response = await fetch(
@@ -212,7 +219,7 @@ export async function* streamMessage(
         'X-Device-Id': getDeviceId(),
         Accept: 'text/event-stream',
       },
-      body: JSON.stringify({ content, temperature }),
+      body: JSON.stringify({ content, temperature, privacy_mode: privacyMode }),
       signal,
     },
   );
@@ -304,6 +311,7 @@ export const chat = {
     model: string;
     title?: string;
     isEphemeral?: boolean;
+    privacyMode?: PrivacyMode;
     systemPrompt?: string;
     tags?: string[];
   }) => {
@@ -313,6 +321,7 @@ export const chat = {
         model: data.model,
         title: data.title,
         is_ephemeral: data.isEphemeral ?? false,
+        privacy_mode: data.privacyMode ?? 'masked_private',
         system_prompt: data.systemPrompt,
         tags: data.tags ?? [],
       },
@@ -334,6 +343,7 @@ export const chat = {
         folder_id: data.folderId,
         provider: data.provider,
         model: data.model,
+        privacy_mode: data.privacyMode,
       },
     });
     return mapChatSession(session);

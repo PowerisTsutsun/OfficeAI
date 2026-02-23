@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import AppShell from './components/layout/AppShell';
 import LoginPage from './components/auth/LoginPage';
 import { useAuthStore } from './store/authStore';
-import { loadStoredTokens } from './lib/api';
+import { hasSessionToken, loadStoredTokens } from './lib/api';
 
 function LoadingScreen() {
   return (
@@ -45,7 +45,11 @@ export default function App() {
   useEffect(() => {
     // Load tokens from storage, then try to load user
     loadStoredTokens();
-    loadUser().finally(() => setBootstrapped(true));
+    if (hasSessionToken()) {
+      loadUser().finally(() => setBootstrapped(true));
+    } else {
+      setBootstrapped(true);
+    }
   }, []);
 
   // Apply stored theme immediately before first render

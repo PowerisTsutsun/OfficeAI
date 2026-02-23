@@ -205,6 +205,7 @@ class ChatSession(Base):
     title: Mapped[str | None] = mapped_column(String(500))
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_ephemeral: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    privacy_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="masked_private")
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     system_prompt_enc: Mapped[str | None] = mapped_column(Text)
@@ -237,6 +238,9 @@ class ChatMessage(Base):
     model: Mapped[str | None] = mapped_column(String(100))
     finish_reason: Mapped[str | None] = mapped_column(String(50))
     is_ephemeral: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    privacy_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="masked_private")
+    redaction_status: Mapped[str | None] = mapped_column(String(30))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
     parent_msg_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id"))
     created_at: Mapped[datetime] = now_ts()
 
@@ -263,6 +267,18 @@ class PromptTemplate(Base):
 
 
 # ── Audit ────────────────────────────────────────────────────────────────────
+
+class RedactionMap(Base):
+    __tablename__ = "redaction_map"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    placeholder: Mapped[str] = mapped_column(String(80), nullable=False)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_value_iv: Mapped[str] = mapped_column(Text, nullable=False)
+    value_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = now_ts()
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

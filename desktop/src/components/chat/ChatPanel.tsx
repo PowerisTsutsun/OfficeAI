@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, Settings2, MoreHorizontal, Pin, Trash2,
-  Edit2, Zap, SlidersHorizontal, MessageSquare, Send, Paperclip,
+  Edit2, Zap, SlidersHorizontal, MessageSquare, Send, Paperclip, Lock, Shield, Server,
 } from 'lucide-react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
@@ -16,6 +16,12 @@ const PROVIDER_COLORS: Record<string, string> = {
   anthropic: '#d4763b',
   gemini: '#4285f4',
 };
+
+const PRIVACY_OPTIONS = [
+  { id: 'masked_private', label: 'Masked', icon: Shield },
+  { id: 'local', label: 'Local', icon: Server },
+  { id: 'true_private', label: 'True Private', icon: Lock },
+] as const;
 
 function ModelBadge({ provider, modelLabel }: { provider: string; modelLabel: string }) {
   const color = PROVIDER_COLORS[provider] ?? '#888';
@@ -84,6 +90,7 @@ function AdvancedHeader() {
   const { toggleSettingsPanel } = useUIStore();
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [privacyMenuOpen, setPrivacyMenuOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
 
@@ -104,6 +111,8 @@ function AdvancedHeader() {
   };
 
   const totalTokens = activeSession.totalTokensIn + activeSession.totalTokensOut;
+  const activePrivacy = PRIVACY_OPTIONS.find((o) => o.id === activeSession.privacyMode) ?? PRIVACY_OPTIONS[0];
+  const ActivePrivacyIcon = activePrivacy.icon;
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[--border-subtle] bg-[--bg-surface] flex-shrink-0">
@@ -199,6 +208,61 @@ function AdvancedHeader() {
         </AnimatePresence>
       </div>
 
+      {/* Privacy mode selector */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setPrivacyMenuOpen((v) => !v)}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-[--bg-elevated] border border-[--border-subtle] hover:border-[--border-default] transition-colors"
+          aria-label="Select privacy mode"
+        >
+          <ActivePrivacyIcon className="w-3 h-3 text-[--text-tertiary]" />
+          <span className="text-[11px] text-[--text-secondary]">{activePrivacy.label}</span>
+          <ChevronDown className="w-3 h-3 text-[--text-tertiary]" />
+        </button>
+        <AnimatePresence>
+          {privacyMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setPrivacyMenuOpen(false)} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: -4 }}
+                transition={{ duration: 0.1 }}
+                className="absolute right-0 top-9 z-20 context-menu min-w-[180px]"
+              >
+                {PRIVACY_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    onClick={async () => {
+                      const updateData: any = { privacyMode: option.id };
+                      if (option.id === 'local') {
+                        const localProvider = providers.find((p) => p.name === 'local');
+                        const localModel = localProvider?.models.find((m) => m.isEnabled);
+                        if (localProvider && localModel) {
+                          updateData.provider = 'local';
+                          updateData.model = localModel.modelId;
+                        }
+                      }
+                      await updateSession(activeSession.id, updateData);
+                      setPrivacyMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors text-xs ${
+                      activeSession.privacyMode === option.id
+                        ? 'bg-[--accent-subtle] text-[--accent]'
+                        : 'hover:bg-[--bg-hover] text-[--text-secondary]'
+                    }`}
+                  >
+                    <option.icon className="w-3.5 h-3.5" />
+                    <span className="font-medium">{option.label}</span>
+                  </button>
+                ))}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* Token usage */}
       {totalTokens > 0 && (
         <div className="flex items-center gap-1 text-[11px] text-[--text-disabled]">
@@ -287,11 +351,21 @@ function AdvancedHeader() {
 // ── Simple no-session state ─────────────────────────────────────────────────────
 
 function SimpleNoSessionState() {
-  const { createSession, sendMessage, providers, selectedProvider, selectedModel, setModel } = useChatStore();
+  const {
+    createSession,
+    sendMessage,
+    providers,
+    selectedProvider,
+    selectedModel,
+    selectedPrivacyMode,
+    setModel,
+    setPrivacyMode,
+  } = useChatStore();
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [showModels, setShowModels] = useState(false);
+  const [showPrivacyModes, setShowPrivacyModes] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -344,7 +418,11 @@ function SimpleNoSessionState() {
     if (!content || isSending) return;
     setIsSending(true);
     try {
-      await createSession({ provider: selectedProvider, model: selectedModel });
+      await createSession({
+        provider: selectedProvider,
+        model: selectedModel,
+        privacyMode: selectedPrivacyMode,
+      });
       setValue('');
       // Small delay so the session is active before sending
       await new Promise((r) => setTimeout(r, 50));
@@ -365,18 +443,18 @@ function SimpleNoSessionState() {
   );
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-6 select-none">
-      <div className="w-full max-w-lg flex flex-col items-center gap-6">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[--accent]/20 to-[--accent]/5 border border-[--accent]/20 flex items-center justify-center">
-          <MessageSquare className="w-6 h-6 text-[--accent]" />
+    <div className="flex flex-col items-center justify-center w-full h-full min-h-0 px-6 select-none">
+      <div className="w-full max-w-2xl flex flex-col items-center gap-7">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[--accent]/20 to-[--accent]/5 border border-[--accent]/20 flex items-center justify-center">
+          <MessageSquare className="w-8 h-8 text-[--accent]" />
         </div>
-        <h2 className="text-xl font-semibold text-[--text-primary]">What can I help with?</h2>
+        <h2 className="text-3xl font-semibold text-[--text-primary]">What can I help with?</h2>
 
         {/* Model picker toggle */}
         <div className="flex flex-col items-center gap-2">
           <button
             onClick={() => setShowModels((v) => !v)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[--bg-elevated] border border-[--border-subtle] hover:border-[--border-default] transition-colors text-xs text-[--text-tertiary] hover:text-[--text-secondary]"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[--bg-elevated] border border-[--border-subtle] hover:border-[--border-default] transition-colors text-sm text-[--text-tertiary] hover:text-[--text-secondary]"
           >
             {currentModel && (
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: currentModel.color }} />
@@ -393,7 +471,7 @@ function SimpleNoSessionState() {
                 transition={{ duration: 0.15 }}
                 className="overflow-hidden"
               >
-                <div className="grid grid-cols-2 gap-1.5 w-full max-w-xs">
+                <div className="grid grid-cols-2 gap-2 w-full max-w-md">
                   {allModels.map((m) => {
                     const active = selectedProvider === m.provider && selectedModel === m.modelId;
                     return (
@@ -403,7 +481,7 @@ function SimpleNoSessionState() {
                           setModel(m.provider, m.modelId);
                           setShowModels(false);
                         }}
-                        className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors ${
+                        className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                           active
                             ? 'bg-[--accent]/10 border-[--accent] text-[--text-primary]'
                             : 'bg-[--bg-elevated] border-[--border-subtle] text-[--text-tertiary] hover:border-[--border-default] hover:text-[--text-secondary]'
@@ -411,6 +489,53 @@ function SimpleNoSessionState() {
                       >
                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }} />
                         {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="flex flex-col items-center gap-2">
+          <button
+            onClick={() => setShowPrivacyModes((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[--bg-elevated] border border-[--border-subtle] hover:border-[--border-default] transition-colors text-sm text-[--text-tertiary] hover:text-[--text-secondary]"
+          >
+            {selectedPrivacyMode === 'true_private' && <Lock className="w-3 h-3" />}
+            {selectedPrivacyMode === 'local' && <Server className="w-3 h-3" />}
+            {selectedPrivacyMode === 'masked_private' && <Shield className="w-3 h-3" />}
+            <span>{PRIVACY_OPTIONS.find((p) => p.id === selectedPrivacyMode)?.label ?? 'Masked'}</span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${showPrivacyModes ? 'rotate-180' : ''}`} />
+          </button>
+          <AnimatePresence>
+            {showPrivacyModes && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.15 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-3 gap-2 w-full max-w-lg">
+                  {PRIVACY_OPTIONS.map((option) => {
+                    const active = option.id === selectedPrivacyMode;
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => {
+                          setPrivacyMode(option.id);
+                          setShowPrivacyModes(false);
+                        }}
+                        className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                          active
+                            ? 'bg-[--accent]/10 border-[--accent] text-[--text-primary]'
+                            : 'bg-[--bg-elevated] border-[--border-subtle] text-[--text-tertiary] hover:border-[--border-default] hover:text-[--text-secondary]'
+                        }`}
+                      >
+                        <option.icon className="w-3 h-3" />
+                        {option.label}
                       </button>
                     );
                   })}
@@ -443,7 +568,7 @@ function SimpleNoSessionState() {
               w-full bg-transparent resize-none px-4 pt-3 pb-2
               text-[--text-primary] placeholder:text-[--text-tertiary]
               text-sm leading-relaxed focus:outline-none
-              min-h-[52px] max-h-[160px]
+              min-h-[76px] max-h-[220px]
               disabled:opacity-50
             "
             style={{ fontFamily: 'var(--font-sans)' }}
@@ -496,41 +621,26 @@ export default function ChatPanel() {
   const { activeSession, activeSessionId, messagesBySession, messagesLoading } = useChatStore();
   const { chatViewMode } = useUIStore();
   const isSimple = chatViewMode === 'simple';
+  const hasActiveSession = Boolean(activeSessionId && activeSession);
 
   const messages = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
 
   return (
     <div className="flex flex-col h-full bg-[--bg-base] overflow-hidden">
-      <AnimatePresence mode="wait">
-        {activeSession ? (
-          <motion.div
-            key={activeSessionId}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex flex-col h-full"
-          >
-            {isSimple ? <SimpleHeader /> : <AdvancedHeader />}
-            <MessageList
-              messages={messages}
-              isLoading={messagesLoading}
-            />
-            <MessageInput simple={isSimple} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="no-session"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex-1"
-          >
-            <SimpleNoSessionState />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {hasActiveSession ? (
+        <div className="flex flex-col h-full">
+          {isSimple ? <SimpleHeader /> : <AdvancedHeader />}
+          <MessageList
+            messages={messages}
+            isLoading={messagesLoading}
+          />
+          <MessageInput simple={isSimple} />
+        </div>
+      ) : (
+        <div className="flex-1 w-full h-full min-h-0">
+          <SimpleNoSessionState />
+        </div>
+      )}
     </div>
   );
 }

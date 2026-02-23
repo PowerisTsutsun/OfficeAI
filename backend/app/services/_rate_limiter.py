@@ -22,16 +22,26 @@ class RateLimiter:
     def __init__(self) -> None:
         self._redis: "aioredis.Redis | None" = None
         self._local: dict[str, list[float]] = defaultdict(list)  # fallback
+        self._redis_retry_after: float = 0.0
 
     async def _get_redis(self) -> "aioredis.Redis | None":
         if not _REDIS_AVAILABLE:
             return None
+        now = time.time()
+        if self._redis is None and now < self._redis_retry_after:
+            return None
         if self._redis is None:
             try:
-                self._redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                self._redis = aioredis.from_url(
+                    settings.REDIS_URL,
+                    decode_responses=True,
+                    socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT_SECONDS,
+                    socket_timeout=settings.REDIS_CONNECT_TIMEOUT_SECONDS,
+                )
                 await self._redis.ping()
             except Exception:
                 self._redis = None
+                self._redis_retry_after = now + settings.REDIS_RETRY_COOLDOWN_SECONDS
         return self._redis
 
     async def check(self, key: str, *, limit: int, window: int) -> bool:

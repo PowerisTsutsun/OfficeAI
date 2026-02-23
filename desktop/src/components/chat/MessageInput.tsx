@@ -59,7 +59,7 @@ export default function MessageInput({ simple = false }: { simple?: boolean }) {
     e.target.value = '';
   }, []);
 
-  const { sendMessage, cancelStream, isSending, activeSessionId } = useChatStore();
+  const { sendMessage, cancelStream, isSending, activeSessionId, activeSession } = useChatStore();
   const { quota } = useAuthStore();
 
   const tokenCount = estimateTokens(value);
@@ -122,7 +122,7 @@ export default function MessageInput({ simple = false }: { simple?: boolean }) {
       >
         {/* Ephemeral indicator (advanced only) */}
         <AnimatePresence>
-          {!simple && useChatStore.getState().activeSession?.isEphemeral && (
+          {!simple && activeSession?.isEphemeral && (
             <motion.div
               initial={{ height: 0 }}
               animate={{ height: 'auto' }}
@@ -133,6 +133,24 @@ export default function MessageInput({ simple = false }: { simple?: boolean }) {
                 <div className="w-1.5 h-1.5 rounded-full bg-[--color-warning]" />
                 <span className="text-[10px] text-[--color-warning] font-medium">
                   Ephemeral mode — this conversation won't be saved
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {!simple && activeSession?.privacyMode === 'true_private' && (
+            <motion.div
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center gap-1.5 px-4 py-1.5 bg-[--accent]/10 border-b border-[--accent]/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-[--accent]" />
+                <span className="text-[10px] text-[--accent] font-medium">
+                  True Private mode - AI processing is disabled for this thread
                 </span>
               </div>
             </motion.div>

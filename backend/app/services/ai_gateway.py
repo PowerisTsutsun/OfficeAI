@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
@@ -145,6 +144,10 @@ class OpenAIAdapter(BaseAdapter):
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                 )
+
+
+class LocalOpenAIAdapter(OpenAIAdapter):
+    pass
 
 
 # ── Anthropic Adapter ─────────────────────────────────────────────────────────
@@ -325,15 +328,33 @@ class AIGateway:
     def _init_adapters(self) -> None:
         if settings.OPENAI_API_KEY:
             self._adapters["openai"] = OpenAIAdapter(
-                AdapterConfig(api_key=settings.OPENAI_API_KEY)
+                AdapterConfig(
+                    api_key=settings.OPENAI_API_KEY,
+                    timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
+                )
             )
         if settings.ANTHROPIC_API_KEY:
             self._adapters["anthropic"] = AnthropicAdapter(
-                AdapterConfig(api_key=settings.ANTHROPIC_API_KEY)
+                AdapterConfig(
+                    api_key=settings.ANTHROPIC_API_KEY,
+                    timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
+                )
             )
         if settings.GEMINI_API_KEY:
             self._adapters["gemini"] = GeminiAdapter(
-                AdapterConfig(api_key=settings.GEMINI_API_KEY)
+                AdapterConfig(
+                    api_key=settings.GEMINI_API_KEY,
+                    timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
+                )
+            )
+        if settings.LOCAL_AI_BASE_URL:
+            # Local OpenAI-compatible endpoint (Ollama/vLLM/etc).
+            self._adapters["local"] = LocalOpenAIAdapter(
+                AdapterConfig(
+                    api_key=settings.LOCAL_AI_API_KEY or "local-dev-key",
+                    base_url=settings.LOCAL_AI_BASE_URL,
+                    timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
+                )
             )
 
     def get_adapter(self, provider: str) -> BaseAdapter:
@@ -351,19 +372,24 @@ class AIGateway:
         max_tokens: int | None = None,
         temperature: float = 0.7,
         system: str | None = None,
-        max_retries: int = 2,
+        max_retries: int | None = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Stream a chat response with automatic retry on transient errors.
         Yields StreamChunk objects; caller handles SSE formatting.
         """
-        adapter = self.get_adapter(provider)
+        effective_retries = settings.AI_PROVIDER_MAX_RETRIES if max_retries is None else max_retries
+        try:
+            adapter = self.get_adapter(provider)
+        except ValueError as e:
+            yield StreamChunk(error=str(e))
+            return
         last_error: str | None = None
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(effective_retries + 1):
             if attempt > 0:
                 wait = min(2 ** attempt, 30)
-                logger.warning("Retry %d/%d for %s/%s, waiting %ds", attempt, max_retries, provider, model, wait)
+                logger.warning("Retry %d/%d for %s/%s, waiting %ds", attempt, effective_retries, provider, model, wait)
                 await asyncio.sleep(wait)
 
             try:
@@ -374,22 +400,22 @@ class AIGateway:
                     temperature=temperature,
                     system=system,
                 ):
-                    if chunk.error and attempt < max_retries:
+                    if chunk.error and attempt < effective_retries:
                         last_error = chunk.error
                         # Retryable if provider error (5xx or rate limit)
-                        if "429" in chunk.error or "5" in chunk.error[:3]:
+                        if "429" in chunk.error or " 5" in chunk.error:
                             break
                     yield chunk
                 else:
                     return  # Completed without error
             except httpx.TimeoutException:
                 last_error = "Request timed out"
-                if attempt == max_retries:
+                if attempt == effective_retries:
                     yield StreamChunk(error=last_error)
             except Exception as e:
                 last_error = str(e)
                 logger.exception("AI provider error on attempt %d", attempt)
-                if attempt == max_retries:
+                if attempt == effective_retries:
                     yield StreamChunk(error=f"Provider error: {last_error}")
 
 

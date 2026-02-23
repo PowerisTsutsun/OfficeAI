@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     # ── Redis ────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_CONNECT_TIMEOUT_SECONDS: float = 0.35
+    REDIS_RETRY_COOLDOWN_SECONDS: int = 30
 
     # ── JWT ──────────────────────────────────────────────────────────────────
     JWT_PRIVATE_KEY: str                # PEM-encoded RS256 private key
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    LOCAL_AI_BASE_URL: str = "http://localhost:11434/v1"
+    LOCAL_AI_API_KEY: str = ""
+    AI_PROVIDER_TIMEOUT_SECONDS: float = 20.0
+    AI_PROVIDER_MAX_RETRIES: int = 0
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     ALLOWED_EMAIL_DOMAINS: list[str] = Field(default=["company.com"])

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Search, Pin, Folder, MessageSquare, Settings,
   MoreHorizontal, Trash2, Edit2, Tag, ChevronRight,
-  BookOpen, Star, Hash,
+  Star, Hash,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useChatStore } from '@/store/chatStore';
@@ -236,7 +236,7 @@ function groupSessionsByDate(sessions: ChatSession[]) {
 // ── Main Sidebar ──────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
-  const { sessions, activeSessionId, selectSession, updateSession, deleteSession } = useChatStore();
+  const { sessions, activeSessionId, startNewChat, selectSession, updateSession, deleteSession } = useChatStore();
   const { sidebarOpen, openCommandPalette } = useUIStore();
   const { user } = useAuthStore();
 
@@ -251,8 +251,8 @@ export default function Sidebar() {
   const groups = useMemo(() => groupSessionsByDate(filteredSessions), [filteredSessions]);
 
   const handleNewChat = useCallback(() => {
-    selectSession(null);
-  }, [selectSession]);
+    void startNewChat();
+  }, [startNewChat]);
 
   const handlePin = useCallback((id: string) => {
     const s = sessions.find((s) => s.id === id);
@@ -355,23 +355,18 @@ export default function Sidebar() {
             )}
           </div>
 
-          {/* Bottom bar: Templates + User */}
-          <div className="flex-shrink-0 border-t border-[--border-subtle] p-2 space-y-0.5">
-            <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:bg-[--bg-hover] hover:text-[--text-primary] transition-colors">
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Templates</span>
-              <span className="ml-auto text-[10px] text-[--text-tertiary]">⌘P</span>
-            </button>
+          {/* Bottom bar: User */}
+          <div className="flex-shrink-0 border-t border-[--border-subtle] p-2.5">
 
             {/* User avatar */}
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:bg-[--bg-hover] cursor-pointer transition-colors">
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[--accent] to-[--accent-hover] flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+            <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm text-[--text-secondary] hover:bg-[--bg-hover] cursor-pointer transition-colors">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[--accent] to-[--accent-hover] flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
                 {(user?.displayName ?? user?.email ?? 'U')[0].toUpperCase()}
               </div>
-              <span className="truncate flex-1 text-[--text-primary]">
+              <span className="truncate flex-1 text-[--text-primary] font-medium">
                 {user?.displayName ?? user?.email ?? 'User'}
               </span>
-              <Settings className="w-3.5 h-3.5 flex-shrink-0" />
+              <Settings className="w-4 h-4 flex-shrink-0" />
             </div>
           </div>
         </motion.aside>
@@ -379,3 +374,5 @@ export default function Sidebar() {
     </AnimatePresence>
   );
 }
+
+

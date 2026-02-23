@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback, memo } from 'react';
-import { VariableSizeList as List } from 'react-window';
+import { VariableSizeList as List, type ListOnScrollProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'framer-motion';
 import MessageBubble from './MessageBubble';
@@ -72,6 +72,13 @@ interface MessageListProps {
 // Fixed heights for estimation (actual height varies with content length)
 const ESTIMATE_HEIGHT = 120;
 
+function findLastStreamingIndex(messages: ChatMessageData[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].isStreaming) return i;
+  }
+  return -1;
+}
+
 const MessageListInner = memo(function MessageListInner({
   messages,
   isLoading,
@@ -80,25 +87,47 @@ const MessageListInner = memo(function MessageListInner({
   height,
 }: MessageListProps & { width: number; height: number }) {
   const listRef = useRef<List>(null);
+  const outerRef = useRef<HTMLDivElement | null>(null);
   const heightMapRef = useRef<Record<number, number>>({});
   const prevLengthRef = useRef(0);
+  const shouldStickToBottomRef = useRef(true);
+
+  const isNearBottom = useCallback(() => {
+    const el = outerRef.current;
+    if (!el) return true;
+    const distance = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    return distance <= 80;
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToItem(messages.length - 1, 'end');
+    });
+  }, [messages.length]);
+
+  const handleScroll = useCallback((info: ListOnScrollProps) => {
+    if (!info.scrollUpdateWasRequested) {
+      shouldStickToBottomRef.current = isNearBottom();
+    }
+  }, [isNearBottom]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (messages.length > prevLengthRef.current) {
-      listRef.current?.scrollToItem(messages.length - 1, 'end');
+    if (messages.length > prevLengthRef.current && shouldStickToBottomRef.current) {
+      scrollToBottom();
     }
     prevLengthRef.current = messages.length;
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
 
   // Re-measure streaming messages (content grows)
-  const streamingIdx = messages.findLastIndex((m) => m.isStreaming);
+  const streamingIdx = findLastStreamingIndex(messages);
+  const streamingLength =
+    streamingIdx >= 0 ? (messages[streamingIdx].streamingContent?.length ?? 0) : 0;
   useEffect(() => {
-    if (streamingIdx !== -1) {
-      listRef.current?.resetAfterIndex(streamingIdx);
-      listRef.current?.scrollToItem(messages.length - 1, 'end');
+    if (streamingIdx !== -1 && shouldStickToBottomRef.current) {
+      scrollToBottom();
     }
-  }, [streamingIdx, messages]);
+  }, [streamingIdx, streamingLength, scrollToBottom]);
 
   const getItemSize = useCallback(
     (index: number) => heightMapRef.current[index] ?? ESTIMATE_HEIGHT,
@@ -131,6 +160,8 @@ const MessageListInner = memo(function MessageListInner({
   return (
     <List
       ref={listRef}
+      outerRef={outerRef}
+      onScroll={handleScroll}
       height={height}
       width={width}
       itemCount={messages.length}

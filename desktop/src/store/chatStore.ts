@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import * as api from '@/lib/api';
-import type { ChatMessageData, ChatSession, ChatFolder, AIProvider } from '@/types';
+import type { ChatMessageData, ChatSession, ChatFolder, AIProvider, PrivacyMode } from '@/types';
 
 interface ChatState {
   // Sessions
@@ -23,6 +23,7 @@ interface ChatState {
   providers: AIProvider[];
   selectedProvider: string;
   selectedModel: string;
+  selectedPrivacyMode: PrivacyMode;
 
   // Error
   error: string | null;
@@ -32,10 +33,12 @@ interface ChatActions {
   // Session management
   loadSessions: () => Promise<void>;
   loadFolders: () => Promise<void>;
+  startNewChat: () => Promise<void>;
   createSession: (data: {
     provider?: string;
     model?: string;
     isEphemeral?: boolean;
+    privacyMode?: PrivacyMode;
     systemPrompt?: string;
   }) => Promise<ChatSession>;
   selectSession: (id: string | null) => Promise<void>;
@@ -50,11 +53,20 @@ interface ChatActions {
   // Models
   loadProviders: () => Promise<void>;
   setModel: (provider: string, model: string) => void;
+  setPrivacyMode: (mode: PrivacyMode) => void;
 
   clearError: () => void;
 }
 
 let abortController: AbortController | null = null;
+
+function findMessageIndexById(messages: ChatMessageData[] | undefined, id: string): number {
+  if (!messages) return -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].id === id) return i;
+  }
+  return -1;
+}
 
 export const useChatStore = create<ChatState & ChatActions>()(
   immer((set, get) => ({
@@ -70,6 +82,7 @@ export const useChatStore = create<ChatState & ChatActions>()(
     providers: [],
     selectedProvider: 'gemini',
     selectedModel: 'gemini-3-flash-preview',
+    selectedPrivacyMode: 'masked_private',
     error: null,
 
     loadSessions: async () => {
@@ -89,12 +102,17 @@ export const useChatStore = create<ChatState & ChatActions>()(
       set((s) => { s.folders = folders; });
     },
 
-    createSession: async ({ provider, model, isEphemeral, systemPrompt } = {}) => {
-      const { selectedProvider, selectedModel } = get();
+    startNewChat: async () => {
+      await get().selectSession(null);
+    },
+
+    createSession: async ({ provider, model, isEphemeral, privacyMode, systemPrompt } = {}) => {
+      const { selectedProvider, selectedModel, selectedPrivacyMode } = get();
       const session = await api.chat.createSession({
         provider: provider ?? selectedProvider,
         model: model ?? selectedModel,
         isEphemeral,
+        privacyMode: privacyMode ?? selectedPrivacyMode,
         systemPrompt,
       });
       set((s) => { s.sessions.unshift(session); });
@@ -166,9 +184,11 @@ export const useChatStore = create<ChatState & ChatActions>()(
         createdAt: new Date().toISOString(),
       };
 
-      const assistantId = `stream_${Date.now()}`;
-      const assistantMsg: ChatMessageData = {
-        id: assistantId,
+      const activePrivacyMode = get().activeSession?.privacyMode ?? get().selectedPrivacyMode;
+      const shouldCreateAssistantPlaceholder = activePrivacyMode !== 'true_private';
+      const assistantId = shouldCreateAssistantPlaceholder ? `stream_${Date.now()}` : null;
+      const assistantMsg: ChatMessageData | null = shouldCreateAssistantPlaceholder ? {
+        id: assistantId!,
         role: 'assistant',
         content: '',
         tokensIn: 0,
@@ -179,13 +199,16 @@ export const useChatStore = create<ChatState & ChatActions>()(
         createdAt: new Date().toISOString(),
         isStreaming: true,
         streamingContent: '',
-      };
+      } : null;
 
       set((s) => {
         if (!s.messagesBySession[activeSessionId]) {
           s.messagesBySession[activeSessionId] = [];
         }
-        s.messagesBySession[activeSessionId].push(userMsg, assistantMsg);
+        s.messagesBySession[activeSessionId].push(userMsg);
+        if (assistantMsg) {
+          s.messagesBySession[activeSessionId].push(assistantMsg);
+        }
         s.isSending = true;
         s.streamingSessionId = activeSessionId;
       });
@@ -195,23 +218,32 @@ export const useChatStore = create<ChatState & ChatActions>()(
           activeSessionId,
           content,
           temperature,
+          activePrivacyMode,
           abortController.signal,
         )) {
           if (event.type === 'delta' && event.delta) {
+            if (!assistantId) continue;
             set((s) => {
               const msgs = s.messagesBySession[activeSessionId];
-              const idx = msgs?.findLastIndex((m) => m.id === assistantId);
-              if (idx !== undefined && idx !== -1 && msgs) {
+              const idx = findMessageIndexById(msgs as ChatMessageData[] | undefined, assistantId);
+              if (idx !== -1 && msgs) {
                 msgs[idx].streamingContent =
                   (msgs[idx].streamingContent ?? '') + event.delta!;
               }
             });
           } else if (event.type === 'done') {
+            if (!assistantId) continue;
             set((s) => {
               const msgs = s.messagesBySession[activeSessionId];
-              const idx = msgs?.findLastIndex((m) => m.id === assistantId);
-              if (idx !== undefined && idx !== -1 && msgs) {
-                msgs[idx].content = msgs[idx].streamingContent ?? '';
+              const idx = findMessageIndexById(msgs as ChatMessageData[] | undefined, assistantId);
+              if (idx !== -1 && msgs) {
+                const streamed = msgs[idx].streamingContent ?? '';
+                if (!streamed.trim()) {
+                  // Prevent ghost assistant bubbles when no content is returned.
+                  msgs.splice(idx, 1);
+                  return;
+                }
+                msgs[idx].content = streamed;
                 msgs[idx].isStreaming = false;
                 msgs[idx].tokensIn = event.tokensIn ?? 0;
                 msgs[idx].tokensOut = event.tokensOut ?? 0;
@@ -219,10 +251,11 @@ export const useChatStore = create<ChatState & ChatActions>()(
               }
             });
           } else if (event.type === 'error') {
+            if (!assistantId) continue;
             set((s) => {
               const msgs = s.messagesBySession[activeSessionId];
-              const idx = msgs?.findLastIndex((m) => m.id === assistantId);
-              if (idx !== undefined && idx !== -1 && msgs) {
+              const idx = findMessageIndexById(msgs as ChatMessageData[] | undefined, assistantId);
+              if (idx !== -1 && msgs) {
                 msgs[idx].isStreaming = false;
                 msgs[idx].hasError = true;
                 msgs[idx].errorMessage = event.error ?? 'Unknown error';
@@ -240,10 +273,13 @@ export const useChatStore = create<ChatState & ChatActions>()(
         });
       } catch (e: any) {
         if (e.name !== 'AbortError') {
+          if (!assistantId) {
+            return;
+          }
           set((s) => {
             const msgs = s.messagesBySession[activeSessionId];
-            const idx = msgs?.findLastIndex((m) => m.id === assistantId);
-            if (idx !== undefined && idx !== -1 && msgs) {
+            const idx = findMessageIndexById(msgs as ChatMessageData[] | undefined, assistantId);
+            if (idx !== -1 && msgs) {
               msgs[idx].isStreaming = false;
               msgs[idx].hasError = true;
               msgs[idx].errorMessage = e.detail ?? e.message ?? 'Request failed';
@@ -300,6 +336,19 @@ export const useChatStore = create<ChatState & ChatActions>()(
       set((s) => {
         s.selectedProvider = provider;
         s.selectedModel = model;
+      });
+    },
+
+    setPrivacyMode: (mode) => {
+      set((s) => {
+        s.selectedPrivacyMode = mode;
+        if (mode === 'local' && s.selectedProvider !== 'local') {
+          const localProvider = s.providers.find((p) => p.name === 'local');
+          if (localProvider && localProvider.models.length > 0) {
+            s.selectedProvider = 'local';
+            s.selectedModel = localProvider.models[0].modelId;
+          }
+        }
       });
     },
 

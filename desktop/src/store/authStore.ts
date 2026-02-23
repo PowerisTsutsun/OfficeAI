@@ -93,6 +93,15 @@ export const useAuthStore = create<AuthState & AuthActions>()(
     },
 
     loadUser: async () => {
+      if (!api.getAccessToken() && !sessionStorage.getItem('rt')) {
+        set((s) => {
+          s.user = null;
+          s.quota = null;
+          s.isAuthenticated = false;
+          s.isLoading = false;
+        });
+        return;
+      }
       set((s) => { s.isLoading = true; });
       try {
         const [u, q] = await Promise.all([api.user.getMe(), api.user.getQuota()]);

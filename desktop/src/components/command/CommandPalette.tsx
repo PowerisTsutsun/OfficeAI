@@ -13,7 +13,7 @@ import type { CommandItem } from '@/types';
 
 function useCommands(): CommandItem[] {
   const { setTheme, closeCommandPalette, toggleSettingsPanel } = useUIStore();
-  const { sessions, selectSession, deleteSession } = useChatStore();
+  const { sessions, startNewChat, selectSession } = useChatStore();
 
   return useMemo(() => {
     const baseCommands: CommandItem[] = [
@@ -24,7 +24,7 @@ function useCommands(): CommandItem[] {
         icon: 'plus',
         shortcut: '⌘N',
         group: 'actions',
-        action: () => { selectSession(null); closeCommandPalette(); },
+        action: () => { void startNewChat(); closeCommandPalette(); },
       },
       {
         id: 'toggle-settings',
@@ -81,7 +81,7 @@ function useCommands(): CommandItem[] {
     }));
 
     return [...baseCommands, ...chatCommands];
-  }, [createSession, closeCommandPalette, toggleSettingsPanel, setTheme, sessions, selectSession]);
+  }, [closeCommandPalette, toggleSettingsPanel, setTheme, sessions, startNewChat, selectSession]);
 }
 
 // ── Icon map ──────────────────────────────────────────────────────────────────
@@ -337,3 +337,4 @@ export default function CommandPalette() {
     </>
   );
 }
+

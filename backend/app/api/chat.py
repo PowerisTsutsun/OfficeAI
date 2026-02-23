@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from hashlib import sha256
 from datetime import UTC, datetime
-from typing import Annotated, Any, AsyncGenerator
+from typing import Annotated, Any, AsyncGenerator, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -19,8 +20,9 @@ from app.core.audit import append_audit_log
 from app.core.rbac import CurrentUser
 from app.core.security import decrypt_message, encrypt_message
 from app.database import get_db
-from app.models.db import AIModel, AIProvider, ChatFolder, ChatMessage, ChatSession, UserQuota
+from app.models.db import AIModel, AIProvider, ChatFolder, ChatMessage, ChatSession, RedactionMap, UserQuota
 from app.services import rate_limiter
+from app.services.redaction import redact_text
 from app.services.ai_gateway import ChatMessage as AIChatMessage
 from app.services.ai_gateway import get_gateway
 
@@ -34,6 +36,7 @@ class CreateSessionRequest(BaseModel):
     model: str
     title: str | None = None
     is_ephemeral: bool = False
+    privacy_mode: Literal["true_private", "local", "masked_private"] = "masked_private"
     system_prompt: str | None = None
     folder_id: uuid.UUID | None = None
     tags: list[str] = []
@@ -46,6 +49,7 @@ class UpdateSessionRequest(BaseModel):
     folder_id: uuid.UUID | None = None
     provider: str | None = None
     model: str | None = None
+    privacy_mode: Literal["true_private", "local", "masked_private"] | None = None
 
 
 class SessionResponse(BaseModel):
@@ -55,6 +59,7 @@ class SessionResponse(BaseModel):
     model: str
     is_pinned: bool
     is_ephemeral: bool
+    privacy_mode: Literal["true_private", "local", "masked_private"]
     tags: list[str]
     folder_id: uuid.UUID | None
     total_tokens_in: int
@@ -80,6 +85,7 @@ class MessageResponse(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     temperature: float = 0.7
+    privacy_mode: Literal["true_private", "local", "masked_private"] | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -106,6 +112,23 @@ async def _verify_model_access(
             status_code=400,
             detail=f"Provider '{provider_name}' or model '{model_id}' is not available",
         )
+    return row
+
+
+async def _get_default_model_choice(db: AsyncSession) -> tuple[str, str]:
+    result = await db.execute(
+        select(AIProvider.name, AIModel.model_id)
+        .join(AIModel, AIModel.provider_id == AIProvider.id)
+        .where(
+            AIProvider.is_enabled.is_(True),
+            AIModel.is_enabled.is_(True),
+        )
+        .order_by(AIProvider.name.asc(), AIModel.sort_order.asc())
+        .limit(1)
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise HTTPException(status_code=400, detail="No enabled model is available")
     return row
 
 
@@ -161,6 +184,10 @@ def _derive_session_title(content: str) -> str | None:
     return cleaned[: max_len - 3].rstrip() + "..."
 
 
+def _hash_text(text: str) -> str:
+    return sha256((text or "").encode("utf-8")).hexdigest()
+
+
 # ── Session endpoints ─────────────────────────────────────────────────────────
 
 @router.get("/sessions", response_model=list[SessionResponse])
@@ -200,6 +227,7 @@ def _session_to_response(s: ChatSession) -> SessionResponse:
         model=s.model,
         is_pinned=s.is_pinned,
         is_ephemeral=s.is_ephemeral,
+        privacy_mode=s.privacy_mode,  # type: ignore[arg-type]
         tags=s.tags or [],
         folder_id=s.folder_id,
         total_tokens_in=s.total_tokens_in,
@@ -217,7 +245,15 @@ async def create_session(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SessionResponse:
-    await _verify_model_access(body.provider, body.model, db)
+    if body.privacy_mode == "true_private":
+        # True private mode must never call cloud/local AI.
+        body.provider = "none"
+        body.model = "none"
+    elif body.privacy_mode == "local" and body.provider != "local":
+        raise HTTPException(status_code=400, detail="Local privacy mode requires provider='local'")
+
+    if body.privacy_mode != "true_private":
+        await _verify_model_access(body.provider, body.model, db)
 
     sys_enc = sys_iv = None
     if body.system_prompt:
@@ -229,6 +265,7 @@ async def create_session(
         model=body.model,
         title=body.title,
         is_ephemeral=body.is_ephemeral,
+        privacy_mode=body.privacy_mode,
         folder_id=body.folder_id,
         tags=body.tags,
         system_prompt_enc=sys_enc,
@@ -248,6 +285,7 @@ async def create_session(
         metadata={
             "provider": body.provider,
             "model": body.model,
+            "privacy_mode": body.privacy_mode,
             "is_ephemeral": body.is_ephemeral,
         },
     )
@@ -282,12 +320,35 @@ async def update_session(
         session.tags = body.tags
     if body.folder_id is not None:
         session.folder_id = body.folder_id
+    if body.privacy_mode is not None:
+        target_provider = body.provider or session.provider
+        session.privacy_mode = body.privacy_mode
+        if body.privacy_mode == "true_private":
+            session.provider = "none"
+            session.model = "none"
+        elif body.privacy_mode == "local" and target_provider != "local":
+            raise HTTPException(status_code=400, detail="Local privacy mode requires provider='local'")
+        elif body.privacy_mode != "true_private" and session.provider == "none":
+            if body.provider and body.model:
+                await _verify_model_access(body.provider, body.model, db)
+                session.provider = body.provider
+                session.model = body.model
+            else:
+                default_provider, default_model = await _get_default_model_choice(db)
+                session.provider = default_provider
+                session.model = default_model
     if body.provider is not None or body.model is not None:
-        new_provider = body.provider or session.provider
-        new_model = body.model or session.model
-        await _verify_model_access(new_provider, new_model, db)
-        session.provider = new_provider
-        session.model = new_model
+        if session.privacy_mode == "true_private":
+            if body.privacy_mode is None:
+                raise HTTPException(status_code=400, detail="Cannot change model/provider in true private mode")
+        else:
+            new_provider = body.provider or session.provider
+            new_model = body.model or session.model
+            if session.privacy_mode == "local" and new_provider != "local":
+                raise HTTPException(status_code=400, detail="Local privacy mode requires provider='local'")
+            await _verify_model_access(new_provider, new_model, db)
+            session.provider = new_provider
+            session.model = new_model
 
     return _session_to_response(session)
 
@@ -375,6 +436,7 @@ async def send_message(
         raise HTTPException(status_code=429, detail="Chat rate limit exceeded. Please slow down.")
 
     session = await _get_owned_session(session_id, current_user.id, db)
+    privacy_mode = body.privacy_mode or session.privacy_mode
 
     # Estimate input tokens for quota check
     estimated = _estimate_tokens(body.content)
@@ -384,8 +446,12 @@ async def send_message(
     if estimated > quota.context_window_limit:
         raise HTTPException(status_code=400, detail="Message exceeds your context window limit.")
 
-    # Verify model still enabled
-    await _verify_model_access(session.provider, session.model, db)
+    if privacy_mode == "local" and session.provider != "local":
+        raise HTTPException(status_code=400, detail="Local privacy mode requires a local provider")
+
+    if privacy_mode != "true_private":
+        # Verify model still enabled for AI-enabled modes.
+        await _verify_model_access(session.provider, session.model, db)
 
     # Load conversation history for context
     msg_result = await db.execute(
@@ -403,15 +469,19 @@ async def send_message(
             session.system_prompt_enc, session.system_prompt_iv, str(current_user.id)
         )
 
-    # Build message list for AI
-    ai_messages: list[AIChatMessage] = [
-        AIChatMessage(
-            role=m.role,  # type: ignore[arg-type]
-            content=decrypt_message(m.content_enc, m.content_iv, str(current_user.id)),
-        )
-        for m in history
-    ]
-    ai_messages.append(AIChatMessage(role="user", content=body.content))
+    redaction = redact_text(body.content, privacy_mode)
+
+    # Build message list for AI-enabled privacy modes.
+    ai_messages: list[AIChatMessage] = []
+    if privacy_mode != "true_private":
+        ai_messages = [
+            AIChatMessage(
+                role=m.role,  # type: ignore[arg-type]
+                content=decrypt_message(m.content_enc, m.content_iv, str(current_user.id)),
+            )
+            for m in history
+        ]
+        ai_messages.append(AIChatMessage(role="user", content=redaction.redacted_text))
 
     # Store user message (encrypted)
     content_enc, content_iv = encrypt_message(body.content, str(current_user.id))
@@ -422,14 +492,31 @@ async def send_message(
         content_iv=content_iv,
         tokens_in=estimated,
         is_ephemeral=session.is_ephemeral,
+        privacy_mode=privacy_mode,
+        redaction_status=redaction.status,
+        content_hash=redaction.content_hash,
     )
     db.add(user_msg)
+    await db.flush()
+    if redaction.items:
+        for item in redaction.items:
+            enc_value, enc_iv = encrypt_message(item.value, str(current_user.id))
+            db.add(
+                RedactionMap(
+                    message_id=user_msg.id,
+                    placeholder=item.placeholder,
+                    encrypted_value=enc_value,
+                    encrypted_value_iv=enc_iv,
+                    value_type=item.value_type,
+                )
+            )
     if not (session.title and session.title.strip()):
         derived_title = _derive_session_title(body.content)
         if derived_title:
             session.title = derived_title
     session.message_count += 1
     session.last_message_at = datetime.now(UTC)
+    session.privacy_mode = privacy_mode
     await db.commit()
 
     # Audit: log metadata only (no content)
@@ -447,6 +534,25 @@ async def send_message(
                 "provider": session.provider,
                 "model": session.model,
                 "estimated_tokens": estimated,
+                "privacy_mode": privacy_mode,
+                "redaction_status": redaction.status,
+                "redacted_items": len(redaction.items),
+                "content_hash": redaction.content_hash,
+            },
+        )
+
+    if privacy_mode == "true_private":
+        async def true_private_stream() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'type': 'start', 'session_id': str(session_id)})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'tokens_in': estimated, 'tokens_out': 0, 'finish_reason': 'true_private_no_ai'})}\n\n"
+
+        return StreamingResponse(
+            true_private_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
             },
         )
 
@@ -498,6 +604,9 @@ async def send_message(
                 model=session.model,
                 finish_reason=finish_reason,
                 is_ephemeral=session.is_ephemeral,
+                privacy_mode=privacy_mode,
+                redaction_status="clean",
+                content_hash=_hash_text(full_text),
             )
             db.add(asst_msg)
 
